@@ -6,6 +6,7 @@ Inspect Linux network interfaces, Wi-Fi state, routes, DNS, and network events f
 
 from typing import Any, Dict, Iterator, List, NamedTuple, Optional
 
+from select import select
 from socket import AF_INET, AF_INET6
 from pathlib import Path
 from time import monotonic, sleep
@@ -136,21 +137,16 @@ def __get_interface_stats(interface: str) -> Any:
 
 def interface_operstate(interface: str) -> Optional[str]:
     """
-    Get the operstate of an interface.
+    Get the operstate of an interface as reported by the kernel: "UP", "DOWN",
+    "DORMANT" (e.g. a Wi-Fi association in progress), "LOWERLAYERDOWN",
+    "NOTPRESENT", "TESTING" or "UNKNOWN". None if the interface does not exist.
 
     :param interface: str: Network interface.
 
     """
-    interface_number = __get_interface_number(interface)
-    if interface_number is not None:
-        with IPRoute() as ipr:
-            if interface_number in ipr.link_lookup(operstate="UP"):
-                return "UP"
-            elif interface_number in ipr.link_lookup(operstate="DOWN"):
-                return "DOWN"
-            elif interface_number in ipr.link_lookup(operstate="UNKNOWN"):
-                return "UNKNOWN"
-    return None
+    with IPRoute() as ipr:
+        links = ipr.get_links(ifname=interface)
+    return links[0].get_attr("IFLA_OPERSTATE") if links else None
 
 
 def interface_mac_address(interface: str) -> Optional[str]:
@@ -488,24 +484,50 @@ def __to_network_event(msg) -> Optional[NetworkEvent]:
     return None
 
 
-def watch(interface: Optional[str] = None) -> Iterator[NetworkEvent]:
+def __event_matches(
+    event: NetworkEvent, interface: str, ifindex: Optional[int]
+) -> bool:
+    """ True if `event` belongs to `interface`. Matches by interface index when
+    it could be resolved (route and IPv6 address events carry no interface
+    name), falling back to the name carried by the event. """
+    if event.interface == interface:
+        return True
+    return ifindex is not None and event.index == ifindex
+
+
+def watch(
+    interface: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> Iterator[Optional[NetworkEvent]]:
     """
     Yield NetworkEvent objects as the kernel reports link / address / route changes.
 
-    This blocks between events (it is a live monitor). If `interface` is given, only
-    that interface's link and address events are yielded. Uses netlink, no root.
+    This blocks between events (it is a live monitor). If `interface` is given,
+    only that interface's events are yielded, matched by interface index, so
+    route and IPv6 address events (which carry no interface name) are included.
+    If `timeout` is given, None is yielded whenever that many seconds pass
+    without an event, so a caller can run periodic work (e.g. a health check)
+    on the same thread. Uses netlink, no root.
 
     :param interface: str: Limit to this interface (optional).
+    :param timeout: float: Idle interval in seconds after which None is
+        yielded (optional; without it, the iterator blocks until an event).
 
     """
+    ifindex = __get_interface_number(interface) if interface is not None else None
     with IPRoute() as ipr:
         ipr.bind(_WATCH_GROUPS)
         while True:
+            if timeout is not None:
+                if not select([ipr], [], [], timeout)[0]:
+                    yield None
+                    continue
             for msg in ipr.get():
                 event = __to_network_event(msg)
                 if event is None:
                     continue
-                if interface is not None and event.interface != interface:
+                if interface is not None and not __event_matches(
+                        event, interface, ifindex):
                     continue
                 yield event
 

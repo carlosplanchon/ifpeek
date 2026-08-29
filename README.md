@@ -106,3 +106,16 @@ for event in ifpeek.watch():          # blocks; yields as things change
     print(event.kind, event.action, event.interface, event.detail)
 # NetworkEvent(kind='link', action='new', interface='wlan0', index=4, detail={'operstate': 'DOWN'})
 ```
+
+With `interface=...` only that interface's events are yielded (matched by
+interface index, so route and IPv6 address events are included). With
+`timeout=...` the iterator yields `None` whenever that many seconds pass
+without an event, so periodic work can share the thread:
+
+```python
+for event in ifpeek.watch(interface="wlan0", timeout=30.0):
+    if event is None:
+        run_periodic_health_check()   # idle tick, every <= 30 s
+    else:
+        react_to(event)
+```

@@ -94,9 +94,11 @@ class FakeIW:
 
 
 class FakeMonitor:
-    """ A netlink monitor: bind() is a no-op; get() returns the canned batch. """
-    def __init__(self, batch):
+    """ A netlink monitor: bind() is a no-op; get() returns the canned batch.
+    link_lookup() serves watch()'s name -> ifindex resolution. """
+    def __init__(self, batch, ifindex=None):
         self._batch = batch
+        self._ifindex = ifindex
 
     def __enter__(self):
         return self
@@ -109,6 +111,9 @@ class FakeMonitor:
 
     def get(self):
         return self._batch
+
+    def link_lookup(self, ifname=None, operstate=None):
+        return [self._ifindex] if self._ifindex is not None else []
 
 
 class FakeIWError:
@@ -193,17 +198,27 @@ class TestInterfaceAttributes:
 
 
 class TestOperstate:
+    def _patch(self, monkeypatch, link):
+        links = [link] if link is not None else []
+        monkeypatch.setattr(mod, "IPRoute", lambda: FakeIPRoute(links=links))
+
     def test_up(self, monkeypatch):
-        monkeypatch.setattr(mod, "IPRoute", lambda: FakeIPRoute(ifindex=5, up=(5,)))
+        self._patch(monkeypatch, FakeMsg(IFLA_OPERSTATE="UP"))
         assert ifpeek.interface_operstate("eth0") == "UP"
 
     def test_down(self, monkeypatch):
-        monkeypatch.setattr(mod, "IPRoute", lambda: FakeIPRoute(ifindex=5, down=(5,)))
+        self._patch(monkeypatch, FakeMsg(IFLA_OPERSTATE="DOWN"))
         assert ifpeek.interface_operstate("eth0") == "DOWN"
 
+    def test_dormant(self, monkeypatch):
+        # A Wi-Fi association in progress: the state the UP/DOWN-only
+        # implementation could not report.
+        self._patch(monkeypatch, FakeMsg(IFLA_OPERSTATE="DORMANT"))
+        assert ifpeek.interface_operstate("wlan0") == "DORMANT"
+
     def test_unknown_interface_returns_none(self, monkeypatch):
-        # link_lookup(ifname=...) -> [] means the interface does not exist.
-        monkeypatch.setattr(mod, "IPRoute", lambda: FakeIPRoute(ifindex=None))
+        # get_links(ifname=...) -> [] means the interface does not exist.
+        self._patch(monkeypatch, None)
         assert ifpeek.interface_operstate("nope0") is None
 
 
@@ -596,6 +611,44 @@ class TestWatch:
         events = list(islice(ifpeek.watch("wlan0"), 2))
         assert len(events) == 2 and all(e.interface == "wlan0" for e in events)
 
+    def test_interface_filter_keeps_route_and_ipv6_events(self, monkeypatch):
+        # Route events (interface=None) and IPv6 address events (no IFA_LABEL)
+        # must survive the filter: they are matched by interface index.
+        batch = [
+            FakeMsg(fields={"event": "RTM_NEWROUTE", "family": 2, "dst_len": 0},
+                    RTA_OIF=4, RTA_GATEWAY="192.168.1.1"),
+            FakeMsg(fields={"event": "RTM_DELADDR", "index": 4, "family": 10},
+                    IFA_ADDRESS="fe80::1"),
+            FakeMsg(fields={"event": "RTM_NEWROUTE", "family": 2, "dst_len": 0},
+                    RTA_OIF=9),  # another interface -> filtered out
+        ]
+        monkeypatch.setattr(mod, "IPRoute", lambda: FakeMonitor(batch, ifindex=4))
+        events = list(islice(ifpeek.watch("wlan0"), 2))
+        assert [e.kind for e in events] == ["route", "address"]
+        assert all(e.index == 4 for e in events)
+
+    def test_timeout_yields_none_on_idle(self, monkeypatch):
+        batch = [FakeMsg(fields={"event": "RTM_NEWLINK", "index": 4},
+                         IFLA_IFNAME="wlan0", IFLA_OPERSTATE="UP")]
+        monitor = FakeMonitor(batch)
+        monkeypatch.setattr(mod, "IPRoute", lambda: monitor)
+        selects = iter([([], [], []), ([monitor], [], [])])  # idle, then readable
+        monkeypatch.setattr(mod, "select", lambda r, w, x, t: next(selects))
+        events = list(islice(ifpeek.watch(timeout=0.1), 2))
+        assert events[0] is None  # idle tick
+        assert events[1].kind == "link"
+
+    def test_without_timeout_select_is_not_used(self, monkeypatch):
+        batch = [FakeMsg(fields={"event": "RTM_NEWLINK", "index": 4},
+                         IFLA_IFNAME="wlan0", IFLA_OPERSTATE="UP")]
+        monkeypatch.setattr(mod, "IPRoute", lambda: FakeMonitor(batch))
+
+        def unexpected_select(*args):
+            raise AssertionError("select() must not be called without timeout")
+
+        monkeypatch.setattr(mod, "select", unexpected_select)
+        assert next(iter(ifpeek.watch())).kind == "link"
+
 
 # --- real, unmocked calls against the loopback interface --------------------
 
@@ -607,7 +660,17 @@ class TestLoopbackSmoke:
         assert "lo" in ifpeek.get_loopback_interface()
 
     def test_lo_operstate(self):
-        assert ifpeek.interface_operstate("lo") in {"UP", "DOWN", "UNKNOWN"}
+        assert ifpeek.interface_operstate("lo") in {
+            "UP", "DOWN", "DORMANT", "LOWERLAYERDOWN",
+            "NOTPRESENT", "TESTING", "UNKNOWN",
+        }
+
+    def test_watch_timeout_yields_idle_tick(self):
+        # Real bind + select: on an idle system the first item is the None
+        # tick after ~50 ms; if an event happens to arrive first, that is
+        # fine too.
+        item = next(ifpeek.watch(timeout=0.05))
+        assert item is None or isinstance(item, ifpeek.NetworkEvent)
 
     def test_lo_mac_is_a_mac_string(self):
         mac = ifpeek.interface_mac_address("lo")
