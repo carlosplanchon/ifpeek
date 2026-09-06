@@ -24,7 +24,7 @@ uv add "ifpeek[scan]"    # + nearby Wi-Fi scanning (iwd / NetworkManager / wpa_s
 ## Features
 
 Core facts (interfaces, Wi-Fi, routes, events) come from the kernel via `pyroute2` (netlink / nl80211):
-no external tools, no root. DNS is read from `resolv.conf`, and the optional Wi-Fi scan uses D-Bus.
+no external tools, no root. DNS is read from `resolv.conf`, and the optional Wi-Fi scan uses the running Wi-Fi daemon's D-Bus API plus the kernel's scan cache (nl80211).
 
 **Interfaces**
 - List loopback / ethernet / wifi interfaces (classified by kernel type, not by name).
@@ -37,7 +37,7 @@ no external tools, no root. DNS is read from `resolv.conf`, and the optional Wi-
 - The default interface, default gateway (IPv4 / IPv6), and the configured DNS servers.
 
 **Nearby Wi-Fi scan** *(optional, requires `ifpeek[scan]` + a running Wi-Fi daemon)*
-- List nearby access points (SSID, signal, security) via **iwd, NetworkManager, or wpa_supplicant** over D-Bus, without root.
+- List nearby access points (SSID, BSSID, frequency, signal, security) via **iwd, NetworkManager, or wpa_supplicant** over D-Bus, without root. `fresh=True` asks the daemon to scan first; per-BSS details the daemon does not report are completed from the kernel's scan cache (nl80211, no root either).
 
 **Events**
 - `watch()`: a live stream of link / address / route changes (netlink, no root), to react instead of poll.
@@ -83,19 +83,28 @@ uv add "ifpeek[scan]"
 ```python
 import ifpeek
 
-for ap in ifpeek.scan_access_points():          # strongest signal first
-    print(ap.ssid, ap.bssid, ap.signal_percent, ap.security)
+for ap in ifpeek.scan_access_points():          # the daemon's current view, strongest signal first
+    print(ap.ssid, ap.bssid, ap.frequency, ap.signal_dbm, ap.security)
 # AccessPoint(ssid='MyNetwork', bssid='aa:bb:cc:dd:ee:ff', frequency=5180,
-#             signal_dbm=None, signal_percent=100, security='psk', connected=True)
+#             signal_dbm=-47, signal_percent=100, security='psk', connected=True)
+
+ifpeek.scan_access_points("wlan0", fresh=True)  # ask the daemon to scan first (waits up to 15 s)
 ```
 
-`signal_percent` (0-100) is always present. `signal_dbm` is usually filled by iwd / wpa_supplicant
-and `None` on NetworkManager (percentage-only); `bssid` and `frequency` are usually filled by
-NetworkManager / wpa_supplicant and `None` on iwd (its scan is network-centric).
+One `AccessPoint` per BSS. `signal_percent` (0-100) is always present; `bssid`, `frequency` and
+`signal_dbm` are filled whenever the daemon or the kernel knows them:
 
-> **Backend status:** the **iwd** backend is verified against a live daemon. The **NetworkManager** and
-> **wpa_supplicant** backends are implemented against their documented D-Bus APIs and unit-tested, but not
-> yet exercised against a live daemon. Bug reports welcome.
+- **iwd** reports one signal per network and no frequency. The BSSIDs come from its `BasicServiceSet`
+  objects, and the per-BSS frequency and dBm from the kernel's scan cache, which holds what the last
+  scan saw (about 30 s). While connected iwd rarely scans, so pass `fresh=True` to get them; otherwise
+  `frequency` is `None` and `signal_dbm` is the network's signal.
+- **NetworkManager** reports no dBm; it is completed from the kernel cache by BSSID.
+- **wpa_supplicant** reports everything itself.
+
+> **Backend status:** the **iwd** backend, `fresh=True` on iwd and the kernel-cache completion are verified
+> against a live daemon. The **NetworkManager** and **wpa_supplicant** backends, including their
+> `fresh=True`, are implemented against their documented D-Bus APIs and unit-tested, but not yet
+> exercised against a live daemon. Bug reports welcome.
 
 ### Watch for changes (event stream)
 
