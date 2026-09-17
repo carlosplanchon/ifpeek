@@ -225,6 +225,64 @@ class InterfaceStats(NamedTuple):
     tx_dropped: int
 
 
+# The sysfs roots rfkill is read from, named so tests can point them at a
+# harmless tree instead of this machine's.
+_SYSFS_NET = "/sys/class/net"
+_SYSFS_RFKILL = "/sys/class/rfkill"
+
+
+def __read_sysfs(path: Path) -> Optional[str]:
+    """ The contents of a sysfs file, stripped, or None if it cannot be read. """
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def interface_rfkill(interface: str) -> Optional[str]:
+    """
+    Whether rfkill has the radio behind `interface` switched off: "hard", "soft",
+    or None when nothing is blocking it or the kernel lists no switch for it.
+
+    A soft block is software (an airplane-mode key, `rfkill block wifi`); a hard
+    block is a physical switch or the firmware. Either way the radio transmits
+    nothing and hears nothing, so a scan comes back empty, which is also what a
+    room with no Wi-Fi in it looks like.
+
+    This is deliberately not `interface_operstate` or `interface_has_carrier`.
+    Both of those are about the association: a Wi-Fi interface carried around
+    with no network joined reads DOWN, with no carrier, while its radio is on
+    and hearing dozens of access points. Neither can tell a switched-off radio
+    from an empty room. Only rfkill can.
+
+    The switch belongs to the interface's phy, which sysfs links at
+    `phy80211`. Some drivers do not expose it there, so a switch registered
+    under the phy's own name is looked for as well.
+
+    :param interface: str: Network interface.
+
+    """
+    phy = Path(f"{_SYSFS_NET}/{interface}/phy80211")
+    switches = sorted(phy.glob("rfkill*"))
+    if not switches:
+        name = __read_sysfs(phy / "name")
+        if name:
+            switches = [
+                switch
+                for switch in sorted(Path(_SYSFS_RFKILL).glob("rfkill*"))
+                if __read_sysfs(switch / "name") == name
+            ]
+    states = [
+        (__read_sysfs(switch / "hard"), __read_sysfs(switch / "soft"))
+        for switch in switches
+    ]
+    if any(hard == "1" for hard, _ in states):
+        return "hard"
+    if any(soft == "1" for _, soft in states):
+        return "soft"
+    return None
+
+
 def interface_stats(interface: str) -> Optional[InterfaceStats]:
     """
     Get the full traffic counters of an interface (bytes, packets, errors, dropped).

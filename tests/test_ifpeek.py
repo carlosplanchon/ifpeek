@@ -222,6 +222,71 @@ class TestOperstate:
         assert ifpeek.interface_operstate("nope0") is None
 
 
+# --- rfkill ------------------------------------------------------------------
+
+class TestRfkill:
+    """rfkill answers the one question operstate and carrier cannot: is the radio on?"""
+
+    def _sysfs(self, monkeypatch, tmp_path, hard="0", soft="0",
+               under_phy=True, phy_name="phy0", switch="rfkill0"):
+        net = tmp_path / "net"
+        phy = net / "wlan0" / "phy80211"
+        phy.mkdir(parents=True)
+        (phy / "name").write_text(f"{phy_name}\n")
+        rfkill = tmp_path / "rfkill"
+        rfkill.mkdir()
+        if switch:
+            where = (phy if under_phy else rfkill) / switch
+            where.mkdir()
+            (where / "hard").write_text(f"{hard}\n")
+            (where / "soft").write_text(f"{soft}\n")
+            if not under_phy:
+                (where / "name").write_text(f"{phy_name}\n")
+        monkeypatch.setattr(mod, "_SYSFS_NET", str(net))
+        monkeypatch.setattr(mod, "_SYSFS_RFKILL", str(rfkill))
+
+    def test_a_radio_nothing_is_blocking(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path)
+        assert ifpeek.interface_rfkill("wlan0") is None
+
+    def test_a_soft_block(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path, soft="1")
+        assert ifpeek.interface_rfkill("wlan0") == "soft"
+
+    def test_a_hard_block(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path, hard="1")
+        assert ifpeek.interface_rfkill("wlan0") == "hard"
+
+    def test_hard_wins_over_soft(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path, hard="1", soft="1")
+        assert ifpeek.interface_rfkill("wlan0") == "hard"
+
+    def test_a_switch_registered_under_the_phy_name_instead(self, monkeypatch, tmp_path):
+        # Some drivers do not link the switch under phy80211; it is found by the
+        # phy's own name in /sys/class/rfkill.
+        self._sysfs(monkeypatch, tmp_path, soft="1", under_phy=False)
+        assert ifpeek.interface_rfkill("wlan0") == "soft"
+
+    def test_a_switch_belonging_to_another_radio_is_not_ours(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path, soft="1", under_phy=False, phy_name="phy0")
+        rfkill = tmp_path / "rfkill" / "rfkill0"
+        (rfkill / "name").write_text("hci0\n")  # the Bluetooth radio, blocked
+        assert ifpeek.interface_rfkill("wlan0") is None
+
+    def test_no_switch_at_all_is_not_a_block(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path, switch=None)
+        assert ifpeek.interface_rfkill("wlan0") is None
+
+    def test_an_interface_sysfs_has_never_heard_of(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path)
+        assert ifpeek.interface_rfkill("nope0") is None
+
+    def test_an_unreadable_switch_is_not_a_block(self, monkeypatch, tmp_path):
+        self._sysfs(monkeypatch, tmp_path, soft="1")
+        (tmp_path / "net" / "wlan0" / "phy80211" / "rfkill0" / "soft").unlink()
+        assert ifpeek.interface_rfkill("wlan0") is None
+
+
 # --- interface typing --------------------------------------------------------
 
 class TestInterfaceType:

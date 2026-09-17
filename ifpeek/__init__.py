@@ -17,6 +17,7 @@ from ifpeek.ifpeek import access_point_bitrate
 from ifpeek.ifpeek import interface_type
 from ifpeek.ifpeek import interface_mtu
 from ifpeek.ifpeek import interface_has_carrier
+from ifpeek.ifpeek import interface_rfkill
 from ifpeek.ifpeek import interface_stats
 from ifpeek.ifpeek import InterfaceStats
 from ifpeek.ifpeek import interface_rate

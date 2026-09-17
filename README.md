@@ -29,6 +29,7 @@ no external tools, no root. DNS is read from `resolv.conf`, and the optional Wi-
 **Interfaces**
 - List loopback / ethernet / wifi interfaces (classified by kernel type, not by name).
 - Per interface: type, operational state, MAC, MTU, carrier, IPv4 / IPv6 addresses, traffic counters (bytes / packets / errors / drops), and throughput rate.
+- Whether rfkill has a radio switched off (`"hard"` / `"soft"`). Operational state and carrier cannot answer that: both are about the association, so an interface joined to no network reads `DOWN` with no carrier while its radio is on and hearing everything nearby.
 
 **Access point (Wi-Fi)**
 - ESSID, BSSID, signal (dBm + %), plus the frequency and current bitrate of the associated AP.
@@ -53,6 +54,7 @@ ifpeek.interface_type("docker0")           # 'bridge'
 ifpeek.interface_operstate("wlan0")        # 'UP'
 ifpeek.interface_mac_address("wlan0")      # 'a1:b2:c3:d4:e5:f6'
 ifpeek.interface_mtu("wlan0")              # 1500
+ifpeek.interface_rfkill("wlan0")           # None  ("soft" or "hard" when blocked)
 ifpeek.interface_ipv4_addresses("wlan0")   # ['192.168.1.42']
 ifpeek.interface_stats("wlan0").rx_packets # 51702404
 ifpeek.interface_rate("wlan0")             # InterfaceRate(rx_bytes_per_sec=…, tx_bytes_per_sec=…)
