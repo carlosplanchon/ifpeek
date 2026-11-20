@@ -13,7 +13,7 @@ jobs:
     name: build & validate
     runs-on: ubuntu-latest
     env:
-      UV_PYTHON: "3.14"  # pin every uv command (run/build) to Python 3.14
+      UV_PYTHON: "3.15"  # pin every uv command (run/build) to Python 3.15
     steps:
       - uses: actions/checkout@v7
 
