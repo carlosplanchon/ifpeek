@@ -14,7 +14,7 @@
 
 ## Installation
 
-Requires **Python 3.10+** on **Linux**. Install with [uv](https://docs.astral.sh/uv/):
+Requires **Python 3.11+** on **Linux**. Install with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv add ifpeek            # core (only dependency: pyroute2)
