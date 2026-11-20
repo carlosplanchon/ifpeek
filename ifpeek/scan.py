@@ -18,7 +18,7 @@ pyroute2, which is unprivileged too.
 """
 
 from time import monotonic, sleep
-from typing import Dict, List, NamedTuple, Optional
+from typing import NamedTuple
 
 from pyroute2 import IPRoute
 from pyroute2.netlink import NLM_F_DUMP, NLM_F_REQUEST
@@ -62,9 +62,9 @@ class AccessPoint(NamedTuple):
     way.
     """
     ssid: str
-    bssid: Optional[str]
-    frequency: Optional[int]
-    signal_dbm: Optional[int]
+    bssid: str | None
+    frequency: int | None
+    signal_dbm: int | None
     signal_percent: int
     security: str
     connected: bool
@@ -72,12 +72,12 @@ class AccessPoint(NamedTuple):
 
 class KernelBss(NamedTuple):
     """One entry of the kernel's scan cache (nl80211 GET_SCAN)."""
-    frequency: Optional[int]
-    signal_dbm: Optional[int]
-    ssid: Optional[str]
+    frequency: int | None
+    signal_dbm: int | None
+    ssid: str | None
 
 
-def scan_access_points(interface: Optional[str] = None, fresh: bool = False) -> List[AccessPoint]:
+def scan_access_points(interface: str | None = None, fresh: bool = False) -> list[AccessPoint]:
     """
     Return the nearby Wi-Fi access points, strongest signal first, from the running
     Wi-Fi daemon (iwd, NetworkManager or wpa_supplicant, auto-detected).
@@ -175,7 +175,7 @@ def _wait_until(done, timeout=_SCAN_TIMEOUT, interval=_POLL_INTERVAL):
 
 # --- kernel scan cache (nl80211, no root) -----------------------------------
 
-def _kernel_scan_results(interface) -> Dict[str, KernelBss]:
+def _kernel_scan_results(interface) -> dict[str, KernelBss]:
     """ {bssid: KernelBss} from the kernel's scan cache for `interface`
     (NL80211_CMD_GET_SCAN, which unlike triggering a scan needs no privilege).
     Empty when the interface is unknown or nl80211 is unavailable. Entries expire
@@ -205,7 +205,7 @@ def _kernel_scan_dump(interface):
         nl.close()
 
 
-def _parse_kernel_bss(messages) -> Dict[str, KernelBss]:
+def _parse_kernel_bss(messages) -> dict[str, KernelBss]:
     """ Pick BSSID, frequency, signal and SSID out of GET_SCAN messages. """
     results = {}
     for message in messages:

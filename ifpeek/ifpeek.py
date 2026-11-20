@@ -4,7 +4,8 @@
 Inspect Linux network interfaces, Wi-Fi state, routes, DNS, and network events from Python.
 """
 
-from typing import Any, Dict, Iterator, List, NamedTuple, Optional
+from collections.abc import Iterator
+from typing import Any, NamedTuple
 
 from select import select
 from socket import AF_INET, AF_INET6
@@ -32,7 +33,7 @@ _WATCH_GROUPS = (
 )
 
 
-def __get_interface_names() -> List[str]:
+def __get_interface_names() -> list[str]:
     """ Return all network interface names (from pyroute2.IPRoute). """
     with IPRoute() as ipr:
         return [link.get_attr("IFLA_IFNAME") for link in ipr.get_links()]
@@ -72,17 +73,17 @@ def interface_type(interface: str) -> str:
     return "unknown"
 
 
-def get_loopback_interface() -> List[str]:
+def get_loopback_interface() -> list[str]:
     """ Return a list of loopback interfaces (ideally one). """
     return [i for i in __get_interface_names() if interface_type(i) == "loopback"]
 
 
-def get_eth_interfaces() -> List[str]:
+def get_eth_interfaces() -> list[str]:
     """ Return a list of ethernet interfaces (ideally one). """
     return [i for i in __get_interface_names() if interface_type(i) == "ethernet"]
 
 
-def get_wifi_interfaces() -> List[str]:
+def get_wifi_interfaces() -> list[str]:
     """ Return list of wifi interfaces (ideally one). """
     return [i for i in __get_interface_names() if interface_type(i) == "wifi"]
 
@@ -117,7 +118,7 @@ def __winterface_name_to_device_dict(interface: str) -> Any:
     return None
 
 
-def __get_interface_number(interface: str) -> Optional[int]:
+def __get_interface_number(interface: str) -> int | None:
     """ Return the interface number (from pyroute2.IPRoute). """
     with IPRoute() as ipr:
         interface_number_list = ipr.link_lookup(ifname=interface)
@@ -135,7 +136,7 @@ def __get_interface_stats(interface: str) -> Any:
     return links[0].get_attr("IFLA_STATS64") or links[0].get_attr("IFLA_STATS")
 
 
-def interface_operstate(interface: str) -> Optional[str]:
+def interface_operstate(interface: str) -> str | None:
     """
     Get the operstate of an interface as reported by the kernel: "UP", "DOWN",
     "DORMANT" (e.g. a Wi-Fi association in progress), "LOWERLAYERDOWN",
@@ -149,7 +150,7 @@ def interface_operstate(interface: str) -> Optional[str]:
     return links[0].get_attr("IFLA_OPERSTATE") if links else None
 
 
-def interface_mac_address(interface: str) -> Optional[str]:
+def interface_mac_address(interface: str) -> str | None:
     """
     Get the MAC address of an interface, or None if it cannot be resolved.
 
@@ -161,7 +162,7 @@ def interface_mac_address(interface: str) -> Optional[str]:
     return links[0].get_attr("IFLA_ADDRESS") if links else None
 
 
-def interface_recv_bytes(interface: str) -> Optional[int]:
+def interface_recv_bytes(interface: str) -> int | None:
     """
     Get the recv bytes of an interface, or None if it cannot be resolved.
 
@@ -172,7 +173,7 @@ def interface_recv_bytes(interface: str) -> Optional[int]:
     return stats["rx_bytes"] if stats is not None else None
 
 
-def interface_sent_bytes(interface: str) -> Optional[int]:
+def interface_sent_bytes(interface: str) -> int | None:
     """
     Get the sent bytes of an interface, or None if it cannot be resolved.
 
@@ -183,7 +184,7 @@ def interface_sent_bytes(interface: str) -> Optional[int]:
     return stats["tx_bytes"] if stats is not None else None
 
 
-def interface_mtu(interface: str) -> Optional[int]:
+def interface_mtu(interface: str) -> int | None:
     """
     Get the MTU of an interface.
 
@@ -197,7 +198,7 @@ def interface_mtu(interface: str) -> Optional[int]:
     return None
 
 
-def interface_has_carrier(interface: str) -> Optional[bool]:
+def interface_has_carrier(interface: str) -> bool | None:
     """
     Whether an interface has a carrier (a physical link / association), or None.
 
@@ -231,7 +232,7 @@ _SYSFS_NET = "/sys/class/net"
 _SYSFS_RFKILL = "/sys/class/rfkill"
 
 
-def __read_sysfs(path: Path) -> Optional[str]:
+def __read_sysfs(path: Path) -> str | None:
     """ The contents of a sysfs file, stripped, or None if it cannot be read. """
     try:
         return path.read_text().strip()
@@ -239,7 +240,7 @@ def __read_sysfs(path: Path) -> Optional[str]:
         return None
 
 
-def interface_rfkill(interface: str) -> Optional[str]:
+def interface_rfkill(interface: str) -> str | None:
     """
     Whether rfkill has the radio behind `interface` switched off: "hard", "soft",
     or None when nothing is blocking it or the kernel lists no switch for it.
@@ -283,7 +284,7 @@ def interface_rfkill(interface: str) -> Optional[str]:
     return None
 
 
-def interface_stats(interface: str) -> Optional[InterfaceStats]:
+def interface_stats(interface: str) -> InterfaceStats | None:
     """
     Get the full traffic counters of an interface (bytes, packets, errors, dropped).
 
@@ -307,7 +308,7 @@ class InterfaceRate(NamedTuple):
     tx_bytes_per_sec: float
 
 
-def interface_rate(interface: str, interval: float = 1.0) -> Optional[InterfaceRate]:
+def interface_rate(interface: str, interval: float = 1.0) -> InterfaceRate | None:
     """
     Measure an interface's throughput over `interval` seconds (this blocks for that long).
 
@@ -330,7 +331,7 @@ def interface_rate(interface: str, interval: float = 1.0) -> Optional[InterfaceR
     )
 
 
-def access_point_essid(interface: str) -> Optional[str]:
+def access_point_essid(interface: str) -> str | None:
     """
     Get the AP ESSID.
 
@@ -343,7 +344,7 @@ def access_point_essid(interface: str) -> Optional[str]:
     return None
 
 
-def access_point_signal_dbm(interface: str) -> Optional[int]:
+def access_point_signal_dbm(interface: str) -> int | None:
     """
     Get the AP signal strength in dBm (e.g. -30; closer to 0 is stronger).
 
@@ -358,7 +359,7 @@ def access_point_signal_dbm(interface: str) -> Optional[int]:
     return None
 
 
-def access_point_signal_percent(interface: str) -> Optional[int]:
+def access_point_signal_percent(interface: str) -> int | None:
     """
     Get the AP signal as an approximate 0-100 percentage, derived from the dBm
     reading. Lossy convenience; prefer access_point_signal_dbm().
@@ -373,7 +374,7 @@ def access_point_signal_percent(interface: str) -> Optional[int]:
     return min(max(2 * (dbm + 100), 0), 100)
 
 
-def access_point_mac_address(interface: str) -> Optional[str]:
+def access_point_mac_address(interface: str) -> str | None:
     """
     Get the AP MAC (BSSID) of the access point `interface` is associated to.
 
@@ -388,7 +389,7 @@ def access_point_mac_address(interface: str) -> Optional[str]:
     return None
 
 
-def access_point_frequency(interface: str) -> Optional[int]:
+def access_point_frequency(interface: str) -> int | None:
     """
     Get the frequency (MHz) of the access point `interface` is associated to, or None.
 
@@ -401,7 +402,7 @@ def access_point_frequency(interface: str) -> Optional[int]:
     return None
 
 
-def access_point_bitrate(interface: str) -> Optional[float]:
+def access_point_bitrate(interface: str) -> float | None:
     """
     Get the current tx bitrate (Mbps) to the associated access point, or None.
 
@@ -421,7 +422,7 @@ def access_point_bitrate(interface: str) -> Optional[float]:
     return None
 
 
-def __interface_addresses(interface: str, family: int) -> List[str]:
+def __interface_addresses(interface: str, family: int) -> list[str]:
     """ Return the `family` addresses assigned to `interface`, matched by
     ifindex (IFA_LABEL is absent for IPv6, so the label cannot be relied on). """
     ifindex = __get_interface_number(interface)
@@ -435,7 +436,7 @@ def __interface_addresses(interface: str, family: int) -> List[str]:
         ]
 
 
-def interface_ipv4_addresses(interface: str) -> List[str]:
+def interface_ipv4_addresses(interface: str) -> list[str]:
     """
     Get the IPv4 addresses assigned to an interface.
 
@@ -445,7 +446,7 @@ def interface_ipv4_addresses(interface: str) -> List[str]:
     return __interface_addresses(interface, AF_INET)
 
 
-def interface_ipv6_addresses(interface: str) -> List[str]:
+def interface_ipv6_addresses(interface: str) -> list[str]:
     """
     Get the IPv6 addresses assigned to an interface.
 
@@ -455,7 +456,7 @@ def interface_ipv6_addresses(interface: str) -> List[str]:
     return __interface_addresses(interface, AF_INET6)
 
 
-def __default_gateway(family: int) -> Optional[str]:
+def __default_gateway(family: int) -> str | None:
     """ Return the default-route gateway for `family`, or None. """
     with IPRoute() as ipr:
         for route in ipr.get_default_routes():
@@ -466,12 +467,12 @@ def __default_gateway(family: int) -> Optional[str]:
     return None
 
 
-def default_gateway_ipv4() -> Optional[str]:
+def default_gateway_ipv4() -> str | None:
     """ Get the IPv4 default gateway (next hop of the default route), or None. """
     return __default_gateway(AF_INET)
 
 
-def default_gateway_ipv6() -> Optional[str]:
+def default_gateway_ipv6() -> str | None:
     """ Get the IPv6 default gateway (next hop of the default route), or None. """
     return __default_gateway(AF_INET6)
 
@@ -485,7 +486,7 @@ def __default_route_oif(routes, family):
     return None
 
 
-def default_interface() -> Optional[str]:
+def default_interface() -> str | None:
     """ Name of the interface backing the default route (IPv4, else IPv6), or None. """
     with IPRoute() as ipr:
         routes = ipr.get_default_routes()
@@ -500,12 +501,12 @@ class NetworkEvent(NamedTuple):
     """ A network change reported by the kernel via netlink. """
     kind: str                  # "link" | "address" | "route"
     action: str                # "new" | "del"
-    interface: Optional[str]   # interface name (best-effort; None for routes)
+    interface: str | None      # interface name (best-effort; None for routes)
     index: int                 # interface index (0 when not applicable)
-    detail: Dict[str, Any]     # kind-specific extras
+    detail: dict[str, Any]     # kind-specific extras
 
 
-def __to_network_event(msg) -> Optional[NetworkEvent]:
+def __to_network_event(msg) -> NetworkEvent | None:
     """ Translate a raw netlink message into a NetworkEvent, or None to skip it. """
     event = msg.get("event")
     if event in ("RTM_NEWLINK", "RTM_DELLINK"):
@@ -543,7 +544,7 @@ def __to_network_event(msg) -> Optional[NetworkEvent]:
 
 
 def __event_matches(
-    event: NetworkEvent, interface: str, ifindex: Optional[int]
+    event: NetworkEvent, interface: str, ifindex: int | None
 ) -> bool:
     """ True if `event` belongs to `interface`. Matches by interface index when
     it could be resolved (route and IPv6 address events carry no interface
@@ -554,9 +555,9 @@ def __event_matches(
 
 
 def watch(
-    interface: Optional[str] = None,
-    timeout: Optional[float] = None,
-) -> Iterator[Optional[NetworkEvent]]:
+    interface: str | None = None,
+    timeout: float | None = None,
+) -> Iterator[NetworkEvent | None]:
     """
     Yield NetworkEvent objects as the kernel reports link / address / route changes.
 
@@ -598,7 +599,7 @@ _RESOLV_CONF_PATHS = (
 )
 
 
-def dns_servers() -> List[str]:
+def dns_servers() -> list[str]:
     """
     Get the configured DNS nameservers.
 
